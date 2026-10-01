@@ -33,6 +33,8 @@ plt.rcParams.update({
 DIET = ["protein_g", "sodium_mg", "potassium_intake_mg", "phosphorus_intake_mg"]
 ACTIVITY = ["mvpa_min_wk", "sedentary_min_day"]
 DEMO = ["age", "is_female"]
+MEDS = ["acei_arb", "k_sparing", "k_wasting_diuretic", "k_supplement"]
+CYCLES = "NHANES 2011–2018"
 
 # ---------- Figure 1: R^2 waterfall for eGFR and serum potassium ----------
 def r2_series(y_col):
@@ -46,11 +48,13 @@ def r2_series(y_col):
 
 egfr_r2 = r2_series("eGFR")
 k_r2 = r2_series("serum_potassium_mmol")
+uacr_r2 = r2_series("log_uacr")
 
-fig, axes = plt.subplots(1, 2, figsize=(9.5, 4.2))
-labels = ["Demographics\n(age, sex)", "+ Diet\n(1-day recall)", "+ Activity\n(self-report)"]
+fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.2))
+labels = ["Demographics\n(age, sex)", "+ Diet\n(2-day recall)", "+ Activity\n(self-report)"]
 for ax, r2s, title, color in zip(
-    axes, [egfr_r2, k_r2], ["eGFR", "Serum potassium"], [ACCENT, RUST]
+    axes, [egfr_r2, k_r2, uacr_r2], ["eGFR", "Serum potassium", "log(UACR)"],
+    [ACCENT, RUST, MUTED]
 ):
     bars = ax.bar(labels, r2s, color=color, width=0.55, zorder=3)
     for b, v in zip(bars, r2s):
@@ -61,7 +65,7 @@ for ax, r2s, title, color in zip(
     ax.spines[["top", "right"]].set_visible(False)
     ax.yaxis.grid(True, color=GRID, linewidth=0.8, zorder=0)
     ax.set_axisbelow(True)
-fig.suptitle("How much of the variance in each marker does diet + activity explain,\non top of demographics alone? (NHANES 2017–2018, n=4,653 adults)",
+fig.suptitle("How much of the variance in each marker does diet + activity explain,\non top of demographics alone? ({}, n={:,} adults)".format(CYCLES, len(df)),
              fontsize=11.5, color=INK2, y=1.04)
 fig.tight_layout()
 fig.savefig(OUT / "r2_waterfall.png", dpi=200, bbox_inches="tight")
@@ -83,9 +87,9 @@ for tertile, sub in grp.groupby("egfr_tertile", observed=True):
     sub = sub.sort_values("k_intake")
     ax.plot(sub["k_intake"], sub["serum_k"], "-o", color=colors[tertile], label=tertile,
             linewidth=2, markersize=5, zorder=3)
-ax.set_xlabel("Mean dietary potassium intake per bin (mg/day, 1-day recall)")
+ax.set_xlabel("Mean dietary potassium intake per bin (mg/day, 2-day recall mean)")
 ax.set_ylabel("Mean serum potassium (mmol/L)")
-ax.set_title("Dietary potassium tracks serum potassium at every kidney-function level\n(binned means, NHANES 2017–2018)",
+ax.set_title("Dietary potassium tracks serum potassium at every kidney-function level\n(binned means, {})".format(CYCLES),
               fontsize=11.5, fontweight="bold", color=INK, pad=12)
 ax.spines[["top", "right"]].set_visible(False)
 ax.grid(True, color=GRID, linewidth=0.8, zorder=0)
@@ -97,9 +101,12 @@ plt.close(fig)
 
 # ---------- Figure 3: feature importances, GBM serum potassium model ----------
 from sklearn.ensemble import GradientBoostingRegressor
-FEATURES_K = DEMO + DIET + ACTIVITY + ["na_k_ratio", "eGFR"]
+from sklearn.model_selection import KFold, cross_val_score
+FEATURES_K = DEMO + DIET + ACTIVITY + ["na_k_ratio", "eGFR"] + MEDS
 sub = df.dropna(subset=FEATURES_K + ["serum_potassium_mmol"])
 gbr = GradientBoostingRegressor(random_state=42, max_depth=2, n_estimators=200, learning_rate=0.05)
+cv_r2 = cross_val_score(gbr, sub[FEATURES_K], sub["serum_potassium_mmol"],
+                        cv=KFold(n_splits=5, shuffle=True, random_state=42), scoring="r2").mean()
 gbr.fit(sub[FEATURES_K], sub["serum_potassium_mmol"])
 imp = pd.Series(gbr.feature_importances_, index=FEATURES_K).sort_values()
 NAME_MAP = {
@@ -108,14 +115,16 @@ NAME_MAP = {
     "sodium_mg": "Dietary sodium", "protein_g": "Dietary protein",
     "phosphorus_intake_mg": "Dietary phosphorus", "sedentary_min_day": "Sedentary min/day",
     "mvpa_min_wk": "Active min/week",
+    "acei_arb": "ACE inhibitor / ARB", "k_sparing": "K-sparing diuretic / MRA",
+    "k_wasting_diuretic": "Loop / thiazide diuretic", "k_supplement": "Potassium supplement",
 }
 imp.index = [NAME_MAP.get(i, i) for i in imp.index]
 
-fig, ax = plt.subplots(figsize=(7, 4.5))
+fig, ax = plt.subplots(figsize=(7, 5.5))
 bar_colors = [ACCENT if v == imp.max() else ACCENT_L for v in imp.values]
 ax.barh(imp.index, imp.values, color=bar_colors, zorder=3)
 ax.set_xlabel("Relative importance (gradient boosting model)")
-ax.set_title("What predicts serum potassium best, in this single-snapshot data?\n(NHANES 2017–2018, n={:,} adults, 5-fold CV R²=0.087)".format(len(sub)),
+ax.set_title("What predicts serum potassium best, in this single-snapshot data?\n({}, n={:,} adults, 5-fold CV R²={:.3f})".format(CYCLES, len(sub), cv_r2),
               fontsize=11.5, fontweight="bold", color=INK, pad=12)
 ax.spines[["top", "right"]].set_visible(False)
 ax.xaxis.grid(True, color=GRID, linewidth=0.8, zorder=0)

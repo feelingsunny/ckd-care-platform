@@ -1,8 +1,8 @@
 """
 Explore how much of the variance in kidney markers (eGFR, serum potassium,
-serum phosphorus) is explained by self-reported diet and physical activity,
-on top of demographics -- using the NHANES 2017-2018 analysis dataset built
-by 01_build_dataset.py.
+urine albumin:creatinine ratio) is explained by self-reported diet and
+physical activity, on top of demographics -- using the pooled NHANES 2011-2018
+analysis dataset built by 01_build_dataset.py.
 
 This is a cross-sectional, population-level analysis: it establishes whether
 diet/activity variables carry real signal about kidney markers at all. It is
@@ -27,6 +27,8 @@ df = df.dropna(subset=["protein_g", "sodium_mg", "potassium_intake_mg",
 df["is_female"] = df["is_female"].astype(int)
 df["ckd"] = df["eGFR"] < 60
 df["na_k_ratio"] = df["sodium_mg"] / df["potassium_intake_mg"]
+# UACR is heavily right-skewed -- model it on the log scale
+df["log_uacr"] = np.log(df["uacr_mg_g"])
 
 print(f"Analysis sample: n={len(df)}  (CKD subgroup eGFR<60: n={df['ckd'].sum()})")
 print()
@@ -34,6 +36,7 @@ print()
 DIET = ["protein_g", "sodium_mg", "potassium_intake_mg", "phosphorus_intake_mg"]
 ACTIVITY = ["mvpa_min_wk", "sedentary_min_day"]
 DEMO = ["age", "is_female"]
+MEDS = ["acei_arb", "k_sparing", "k_wasting_diuretic", "k_supplement"]
 
 # ============================================================
 # 1. OLS: how much variance in eGFR do diet+activity explain,
@@ -59,10 +62,12 @@ def r2_block(y_col, blocks, label):
 blocks = [("demographics", DEMO), ("diet", DIET), ("activity", ACTIVITY)]
 m_egfr = r2_block("eGFR", blocks, "eGFR ~ demographics -> +diet -> +activity")
 m_k = r2_block("serum_potassium_mmol", blocks, "Serum potassium ~ demographics -> +diet -> +activity")
+m_uacr = r2_block("log_uacr", blocks, "log(UACR) ~ demographics -> +diet -> +activity")
 
-# potassium is heavily gated by kidney function itself -- add eGFR as a covariate
-print("--- Serum potassium, controlling for eGFR (mechanistic check) ---")
-X = sm.add_constant(df[DEMO + ["eGFR"] + DIET + ACTIVITY])
+# potassium is heavily gated by kidney function itself and by RAAS blockers /
+# diuretics -- add eGFR and medication flags as covariates
+print("--- Serum potassium, controlling for eGFR + medications (mechanistic check) ---")
+X = sm.add_constant(df[DEMO + ["eGFR"] + MEDS + DIET + ACTIVITY])
 m_k_adj = sm.OLS(df["serum_potassium_mmol"], X, missing="drop").fit()
 print(m_k_adj.summary().tables[1])
 print()
@@ -98,9 +103,14 @@ eval_model(df[df["ckd"]], "eGFR", FEATURES, "CKD subgroup (eGFR<60)")
 print()
 
 print("=== Gradient boosting: serum potassium (kidney function included as feature) ===")
-FEATURES_K = FEATURES + ["eGFR"]
+FEATURES_K = FEATURES + ["eGFR"] + MEDS
 eval_model(df, "serum_potassium_mmol", FEATURES_K, "all adults")
 res_ckd = eval_model(df[df["ckd"]], "serum_potassium_mmol", FEATURES_K, "CKD subgroup (eGFR<60)")
+print()
+
+print("=== Gradient boosting: log(UACR) (kidney function + medications included) ===")
+eval_model(df, "log_uacr", FEATURES_K, "all adults")
+eval_model(df[df["ckd"]], "log_uacr", FEATURES_K, "CKD subgroup (eGFR<60)")
 
 df.to_csv(Path(__file__).parent / "data" / "analysis_dataset_clean.csv", index=False)
 print("\nSaved cleaned analysis frame to data/analysis_dataset_clean.csv")
