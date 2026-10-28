@@ -92,6 +92,15 @@ Tables: `foods`, `nutrients`, `food_nutrients` (one row per food and nutrient),
 columns. Example queries, with T-SQL notes, are in
 [`sql/food_queries.sql`](sql/food_queries.sql).
 
+`05_link_nhanes_foods.py` links the NHANES 2021–2023 individual-food recall files
+(`DR1IFF_L`, `DR2IFF_L`) to the database through the FNDDS food code. All 186,769
+reported foods (6,694 people, two days) match a food in `food.db`, and potassium
+recomputed from the database agrees with NHANES's own values (r = 1.000; 96.7% of
+records within 1 mg). The script adds a `food_popularity` table (how many people
+reported each food) for ranking food-search results. Among adults with CKD in
+2021–2023, the top single potassium sources are brewed coffee (4.5% of all
+potassium reported), bananas (2.4%) and milk.
+
 To rebuild, download the three CSV releases from the
 [FoodData Central download page](https://fdc.nal.usda.gov/download-datasets/)
 (Foundation Foods 04/2026, SR Legacy 04/2018, FNDDS 10/2024), unzip them into

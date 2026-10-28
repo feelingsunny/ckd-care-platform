@@ -72,3 +72,19 @@ SELECT ROUND(SUM(fk.potassium_mg  * l.grams / 100.0)) AS potassium_mg,
        ROUND(SUM(fk.protein_g     * l.grams / 100.0), 1) AS protein_g
 FROM food_log l
 JOIN food_kidney fk ON fk.fdc_id = l.fdc_id;
+
+
+-- Query 6: Food search ranked by how commonly people eat the food
+-- LEFT JOIN keeps foods nobody reported (popularity is NULL for them);
+-- COALESCE turns that NULL into 0 so they sort last.
+-- Built by 05_link_nhanes_foods.py from NHANES 2021-2023 recalls.
+-- T-SQL: SELECT TOP 10 ... (no LIMIT at the end)
+SELECT fk.description,
+       COALESCE(fp.nhanes_people, 0) AS people_reporting,
+       fp.median_grams,
+       fk.potassium_mg               AS potassium_mg_per_100g
+FROM food_kidney fk
+LEFT JOIN food_popularity fp ON fp.fdc_id = fk.fdc_id
+WHERE fk.dataset = 'fndds' AND fk.description LIKE '%potato%'
+ORDER BY people_reporting DESC
+LIMIT 10;
