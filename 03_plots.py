@@ -31,10 +31,10 @@ plt.rcParams.update({
 })
 
 DIET = ["protein_g", "sodium_mg", "potassium_intake_mg", "phosphorus_intake_mg"]
-ACTIVITY = ["mvpa_min_wk", "sedentary_min_day"]
+ACTIVITY = ["rec_mvpa_min_wk", "sedentary_min_day"]
 DEMO = ["age", "is_female"]
 MEDS = ["acei_arb", "k_sparing", "k_wasting_diuretic", "k_supplement"]
-CYCLES = "NHANES 2011–2018"
+CYCLES = "NHANES 2011–2023"
 
 # ---------- Figure 1: R^2 waterfall for eGFR and serum potassium ----------
 def r2_series(y_col):
@@ -114,7 +114,7 @@ NAME_MAP = {
     "potassium_intake_mg": "Dietary potassium", "na_k_ratio": "Sodium:potassium ratio",
     "sodium_mg": "Dietary sodium", "protein_g": "Dietary protein",
     "phosphorus_intake_mg": "Dietary phosphorus", "sedentary_min_day": "Sedentary min/day",
-    "mvpa_min_wk": "Active min/week",
+    "rec_mvpa_min_wk": "Leisure active min/week",
     "acei_arb": "ACE inhibitor / ARB", "k_sparing": "K-sparing diuretic / MRA",
     "k_wasting_diuretic": "Loop / thiazide diuretic", "k_supplement": "Potassium supplement",
 }

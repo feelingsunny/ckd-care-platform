@@ -1,8 +1,8 @@
 """
 Explore how much of the variance in kidney markers (eGFR, serum potassium,
 urine albumin:creatinine ratio) is explained by self-reported diet and
-physical activity, on top of demographics -- using the pooled NHANES 2011-2018
-analysis dataset built by 01_build_dataset.py.
+physical activity, on top of demographics -- using the pooled NHANES
+2011-2018 + 2021-2023 analysis dataset built by 01_build_dataset.py.
 
 This is a cross-sectional, population-level analysis: it establishes whether
 diet/activity variables carry real signal about kidney markers at all. It is
@@ -22,7 +22,7 @@ df = pd.read_csv(DATA)
 
 # ---- clean / derive ----
 df = df.dropna(subset=["protein_g", "sodium_mg", "potassium_intake_mg",
-                        "phosphorus_intake_mg", "mvpa_min_wk", "sedentary_min_day",
+                        "phosphorus_intake_mg", "rec_mvpa_min_wk", "sedentary_min_day",
                         "eGFR", "serum_potassium_mmol", "age"])
 df["is_female"] = df["is_female"].astype(int)
 df["ckd"] = df["eGFR"] < 60
@@ -34,7 +34,9 @@ print(f"Analysis sample: n={len(df)}  (CKD subgroup eGFR<60: n={df['ckd'].sum()}
 print()
 
 DIET = ["protein_g", "sodium_mg", "potassium_intake_mg", "phosphorus_intake_mg"]
-ACTIVITY = ["mvpa_min_wk", "sedentary_min_day"]
+# leisure-time activity: the only activity measure asked the same way in all
+# cycles (2021-2023 dropped the work-activity questions)
+ACTIVITY = ["rec_mvpa_min_wk", "sedentary_min_day"]
 DEMO = ["age", "is_female"]
 MEDS = ["acei_arb", "k_sparing", "k_wasting_diuretic", "k_supplement"]
 

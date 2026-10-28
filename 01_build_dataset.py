@@ -1,8 +1,9 @@
 """
-Build a pooled analysis dataset from four NHANES cycles (2011-2018).
+Build a pooled analysis dataset from five NHANES cycles (2011-2018, 2021-2023).
 
 Expects these files (as downloaded from wwwn.cdc.gov, .XPT format) for each
-cycle suffix G (2011-12), H (2013-14), I (2015-16), J (2017-18) in RAW_DIR:
+cycle suffix G (2011-12), H (2013-14), I (2015-16), J (2017-18), L (2021-23)
+in RAW_DIR:
     DEMO_x    - Demographics
     DR1TOT_x  - Dietary Interview, Total Nutrient Intakes Day 1
     DR2TOT_x  - Dietary Interview, Total Nutrient Intakes Day 2
@@ -13,12 +14,14 @@ cycle suffix G (2011-12), H (2013-14), I (2015-16), J (2017-18) in RAW_DIR:
 
 Produces: data/analysis_dataset.csv
 one row per participant (SEQN), with:
-  - cycle, demographics (age, sex, race, survey weights incl. pooled 8-year MEC weight)
+  - cycle, demographics (age, sex, race, survey weights incl. pooled MEC weight)
   - diet variables averaged over day 1 + day 2 recalls where day 2 is reliable
-  - activity variables (vigorous/moderate minutes per week, sedentary minutes/day)
+  - activity variables: leisure-time minutes per week (comparable across all
+    cycles), work + leisure minutes (2011-2018 only), sedentary minutes/day
   - kidney markers (serum creatinine, potassium, phosphorus, albumin, UACR)
   - eGFR, computed via the race-free 2021 CKD-EPI creatinine equation
   - medication flags that directly affect potassium / albuminuria
+    (2011-2018 only: the public 2021-2023 file has no drug names)
 """
 import numpy as np
 import pandas as pd
@@ -28,7 +31,8 @@ RAW_DIR = Path(__file__).parent / "raw"
 OUT_DIR = Path(__file__).parent / "data"
 OUT_DIR.mkdir(exist_ok=True)
 
-CYCLES = {"G": "2011-2012", "H": "2013-2014", "I": "2015-2016", "J": "2017-2018"}
+CYCLES = {"G": "2011-2012", "H": "2013-2014", "I": "2015-2016", "J": "2017-2018",
+          "L": "2021-2023"}
 
 # nutrient suffixes shared by DR1T*/DR2T*: kcal, protein(g), sodium(mg),
 # potassium(mg), phosphorus(mg), calcium(mg)
@@ -98,7 +102,13 @@ def diet_two_day(s: str) -> pd.DataFrame:
 
 
 def medication_flags(s: str) -> pd.DataFrame:
-    rx = read_xpt(f"RXQ_RX_{s}.xpt")[["SEQN", "RXDUSE", "RXDDRUG"]]
+    rx = read_xpt(f"RXQ_RX_{s}.xpt")
+    if "RXDDRUG" not in rx.columns:
+        # 2021-2023 public release only has "any prescription?" (RXQ033) and
+        # a count (RXQ050), no drug names -> flags unknown for this cycle
+        return pd.DataFrame({"SEQN": rx["SEQN"],
+                             **{cls: np.nan for cls in DRUG_CLASSES}})
+    rx = rx[["SEQN", "RXDUSE", "RXDDRUG"]]
     rx["RXDDRUG"] = rx["RXDDRUG"].fillna("").str.upper()
     # RXDUSE 7/9 = refused/don't know -> flags unknown for that person
     known = rx.groupby("SEQN")["RXDUSE"].apply(lambda u: u.isin([1, 2]).all())
@@ -133,7 +143,7 @@ def paq_activity(s: str) -> pd.DataFrame:
         days = clean(days_col, 7)
         minutes = clean(minutes_col, 840)
         if does_any is None or days is None or minutes is None:
-            return pd.Series(pd.NA, index=paq.index, dtype="float")
+            return pd.Series(np.nan, index=paq.index)
         total = days * minutes
         return total.where(does_any == 1, 0)  # "no" -> 0 minutes, not missing
 
@@ -143,9 +153,40 @@ def paq_activity(s: str) -> pd.DataFrame:
     mod_rec = weekly_minutes("PAQ665", "PAQ670", "PAD675")
 
     out = paq[["SEQN"]].copy()
+    if "PAD790Q" in paq.columns:
+        return out.join(paq_activity_2021(paq, clean))
+    out["vig_rec_min_wk"] = vig_rec
+    out["mod_rec_min_wk"] = mod_rec
     out["vig_min_wk"] = vig_work.add(vig_rec, fill_value=0)
     out["mod_min_wk"] = mod_work.add(mod_rec, fill_value=0)
     out["mvpa_min_wk"] = out["vig_min_wk"] * 2 + out["mod_min_wk"]  # MET-weighted, WHO-style
+    out["sedentary_min_day"] = clean("PAD680", 1320)
+    out["rec_mvpa_min_wk"] = out["vig_rec_min_wk"] * 2 + out["mod_rec_min_wk"]
+    return out
+
+
+def paq_activity_2021(paq: pd.DataFrame, clean) -> pd.DataFrame:
+    """
+    2021-2023 replaced the work + recreation module with leisure-time only:
+      PAD790Q/U = moderate leisure activity: how often (number) / per D, W, M, Y
+      PAD800    = moderate leisure activity: minutes per occasion
+      PAD810Q/U, PAD820 = the same for vigorous leisure activity
+    No work-activity questions, so only the leisure-time measures are filled.
+    """
+    per_week = {"D": 7, "W": 1, "M": 12 / 52, "Y": 1 / 52}
+
+    def weekly_minutes(freq_col, unit_col, minutes_col):
+        # SAS stores some zeros as ~5e-79; round so "0 times" compares equal to 0
+        freq = clean(freq_col, 7776).round(6)
+        minutes = clean(minutes_col, 840)
+        times_wk = freq * paq[unit_col].map(per_week)
+        total = (times_wk * minutes).clip(upper=7 * 840)
+        return total.where(freq != 0, 0)  # "0 times" -> 0 minutes, not missing
+
+    out = pd.DataFrame(index=paq.index)
+    out["vig_rec_min_wk"] = weekly_minutes("PAD810Q", "PAD810U", "PAD820")
+    out["mod_rec_min_wk"] = weekly_minutes("PAD790Q", "PAD790U", "PAD800")
+    out["rec_mvpa_min_wk"] = out["vig_rec_min_wk"] * 2 + out["mod_rec_min_wk"]
     out["sedentary_min_day"] = clean("PAD680", 1320)
     return out
 
@@ -176,8 +217,8 @@ def main():
     # restrict to adults with a valid creatinine reading
     df = df[(df["RIDAGEYR"] >= 18) & df["LBXSCR"].notna()].copy()
 
-    # pooled MEC weight for 4 combined 2-year cycles (NCHS guidance: divide by # cycles)
-    df["WTMEC8YR"] = df["WTMEC2YR"] / len(CYCLES)
+    # pooled MEC weight for combined 2-year cycles (NCHS guidance: divide by # cycles)
+    df["WTMEC_POOLED"] = df["WTMEC2YR"] / len(CYCLES)
 
     df["is_female"] = df["RIAGENDR"] == 2
     df["eGFR"] = ckd_epi_2021_egfr(df["LBXSCR"], df["RIDAGEYR"], df["is_female"])
@@ -190,9 +231,10 @@ def main():
     })
 
     keep = ["SEQN", "cycle", "age", "is_female", "race_eth",
-            "WTMEC2YR", "WTMEC8YR", "SDMVPSU", "SDMVSTRA",
+            "WTMEC2YR", "WTMEC_POOLED", "SDMVPSU", "SDMVSTRA",
             "diet_days", "kcal", "protein_g", "sodium_mg", "potassium_intake_mg",
             "phosphorus_intake_mg", "calcium_mg", "water_day1_g",
+            "vig_rec_min_wk", "mod_rec_min_wk", "rec_mvpa_min_wk",
             "vig_min_wk", "mod_min_wk", "mvpa_min_wk", "sedentary_min_day",
             "creatinine_mgdl", "eGFR", "uacr_mg_g", "serum_potassium_mmol",
             "serum_phosphorus_mgdl", "serum_albumin_gdl", "bun_mgdl", "glucose_mgdl",
