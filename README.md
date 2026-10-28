@@ -73,6 +73,33 @@ results describe the analysed sample rather than the US population.
 
 ---
 
+## Food database
+
+`04_build_food_db.py` builds `data/food.db`, a SQLite database of **13,620 foods**
+with the nutrients that matter in CKD (potassium, sodium, phosphorus, protein,
+calcium, energy, water) per 100 g, plus household portions with gram weights
+(for example, a medium banana is 118 g and 422 mg potassium). It is the nutrient
+source for food logging in the planned app.
+
+| Source (USDA FoodData Central) | Foods | Notes |
+|---|---|---|
+| SR Legacy (2018) | 7,793 | Classic USDA reference foods, most complete nutrient coverage |
+| FNDDS 2021–2023 (2024 release) | 5,432 | The food database behind NHANES 2021–2023 recalls; carries the FNDDS food code |
+| Foundation Foods (2026) | 395 | Newer lab-analyzed values; some foods report only a few nutrients |
+
+Tables: `foods`, `nutrients`, `food_nutrients` (one row per food and nutrient),
+`portions`, and a `food_kidney` view with one row per food and the nutrients as
+columns. Example queries, with T-SQL notes, are in
+[`sql/food_queries.sql`](sql/food_queries.sql).
+
+To rebuild, download the three CSV releases from the
+[FoodData Central download page](https://fdc.nal.usda.gov/download-datasets/)
+(Foundation Foods 04/2026, SR Legacy 04/2018, FNDDS 10/2024), unzip them into
+`raw/fdc/`, and run `python 04_build_food_db.py`. FoodData Central data are public
+domain (CC0).
+
+---
+
 ## Reproducing
 
 Raw `.XPT` files are not committed — they are a few MB each and easy to re-download.

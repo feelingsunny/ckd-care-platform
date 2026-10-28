@@ -1,5 +1,6 @@
 raw/
 data/analysis_dataset.csv
+data/food.db
 __pycache__/
 *.pyc
 .DS_Store
