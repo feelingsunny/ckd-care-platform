@@ -3,3 +3,8 @@ data/analysis_dataset.csv
 __pycache__/
 *.pyc
 .DS_Store
+
+# Private drafts and Word documents (kept local, not published)
+paper/
+*.docx
+~$*
